@@ -195,3 +195,55 @@ describe("the Advanced composer", () => {
     expect(fixture.groupCall).toBeNull();
   });
 });
+
+describe("contextual prompt suggestions and Tab acceptance", () => {
+  const draftId = `bot:${bot.id}:${bot.threadId}`;
+
+  it("shows suggested prompt in placeholder and pulls it into the composer on Tab", () => {
+    const suggestedPrompt = "Summarize the audience research report";
+    render({ bot, suggestedPrompt });
+    const textarea = container.querySelector("textarea")!;
+    expect(textarea.getAttribute("placeholder")).toBe(suggestedPrompt);
+    expect(textarea.value).toBe("");
+
+    const tabEvent = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    flushSync(() => textarea.dispatchEvent(tabEvent));
+    expect(tabEvent.defaultPrevented).toBe(true);
+    expect(textarea.value).toBe(suggestedPrompt);
+  });
+
+  it("does not intercept Tab if composer has user text", () => {
+    const suggestedPrompt = "Summarize the audience research report";
+    render({ bot, suggestedPrompt });
+    flushSync(() => restoreComposerDraft(draftId, { text: "Drafting notes", attachments: [] }));
+    const textarea = container.querySelector("textarea")!;
+    flushSync(() => textarea.dispatchEvent(new KeyboardEvent("keyup", { key: "s", bubbles: true })));
+
+    const tabEvent = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    flushSync(() => textarea.dispatchEvent(tabEvent));
+    expect(tabEvent.defaultPrevented).toBe(false);
+  });
+
+  it("infers contextual suggestion from the last bot question when no prop is provided", () => {
+    const botWithQuestion: Bot = {
+      ...bot,
+      messages: [
+        {
+          id: "m1",
+          at: 1,
+          role: "bot",
+          kind: "text",
+          text: "I finished reviewing the dataset. Would you like me to generate the comparison chart?",
+        },
+      ],
+    };
+    render({ bot: botWithQuestion });
+    const textarea = container.querySelector("textarea")!;
+    expect(textarea.getAttribute("placeholder")).toBe("Go ahead and generate the comparison chart");
+
+    const tabEvent = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    flushSync(() => textarea.dispatchEvent(tabEvent));
+    expect(tabEvent.defaultPrevented).toBe(true);
+    expect(textarea.value).toBe("Go ahead and generate the comparison chart");
+  });
+});

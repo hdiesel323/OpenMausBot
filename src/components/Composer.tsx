@@ -86,6 +86,7 @@ import {
   type ComposerSlashCommand,
 } from "@/lib/composer-commands";
 import { useSlashSkills } from "@/lib/use-slash-skills";
+import { contextualPromptSuggestion } from "@/lib/prompt-suggestions";
 
 interface ComposerDraftSnapshot extends ComposerSendSnapshot {
   reply: Message | null;
@@ -101,6 +102,7 @@ export function Composer({
   onConsumeReply,
   onRestoreReply,
   locked: setupLocked = false,
+  suggestedPrompt: explicitSuggestedPrompt,
 }: {
   bot?: Bot;
   group?: Group;
@@ -111,6 +113,7 @@ export function Composer({
   onConsumeReply?: () => void;
   onRestoreReply?: (message: Message, threadId: string) => void;
   locked?: boolean;
+  suggestedPrompt?: string;
 }) {
   const bot = profile ? currentTaskBot(profile) : undefined;
   const locked = setupLocked || Boolean(bot?.awaitingThreadSnapshot);
@@ -133,8 +136,16 @@ export function Composer({
   const canSteer =
     state.instances.find((i) => i.instanceId === steerInstanceId)?.capabilities?.queueing === true;
   const composerTask = profile?.tasks?.find((task) => task.threadId === threadId);
+  const threadMessages = useMemo(
+    () => (group ? group.messages : bot ? visibleMessages(bot) : []),
+    [group, bot],
+  );
+  const promptSuggestion = useMemo(
+    () => explicitSuggestedPrompt ?? contextualPromptSuggestion({ messages: threadMessages, bot, group }),
+    [explicitSuggestedPrompt, threadMessages, bot, group],
+  );
   // Visible branch only: an approval left on an abandoned branch must not block the composer.
-  const approvals = pendingApprovals(group ? group.messages : bot ? visibleMessages(bot) : []);
+  const approvals = pendingApprovals(threadMessages);
   const approval = approvals[0];
   const approvalBot = group
     ? members?.find((member) => member.id === approval?.message.from?.botId) ??
@@ -929,6 +940,21 @@ export function Composer({
               onClearReply();
               return;
             }
+            if (
+              e.key === "Tab" &&
+              !e.shiftKey &&
+              !e.altKey &&
+              !e.ctrlKey &&
+              !e.metaKey &&
+              !hasContent &&
+              promptSuggestion &&
+              !(group && channelMode === "goal")
+            ) {
+              e.preventDefault();
+              editText(promptSuggestion);
+              setCaret(promptSuggestion.length);
+              return;
+            }
             if (e.key === "ArrowUp" && !hasContent && onEditLast) {
               e.preventDefault();
               onEditLast();
@@ -971,16 +997,18 @@ export function Composer({
                 ? group
                   ? t("composer.placeholder.queueGroup", { name: busyName, key: sendLabel })
                   : t("composer.placeholder.queue", { name: busyName })
-                : group
-                  ? channelMode === "goal"
-                    ? t("composer.placeholder.goal", { name: group.name })
-                    : t("composer.placeholder.group", {
-                        name: group.name,
-                        hint: groupComposerHint(group, members ?? [], { jevOn: jevRoomRoutingOn(state.config) }),
-                      })
-                  : t("composer.placeholder.bot", { name: bot?.name ?? "" })
+                : group && channelMode === "goal"
+                  ? t("composer.placeholder.goal", { name: group.name })
+                  : promptSuggestion
+                    ? promptSuggestion
+                    : group
+                      ? t("composer.placeholder.group", {
+                          name: group.name,
+                          hint: groupComposerHint(group, members ?? [], { jevOn: jevRoomRoutingOn(state.config) }),
+                        })
+                      : t("composer.placeholder.bot", { name: bot?.name ?? "" })
           }
-          aria-label={t("composer.placeholder.bot", { name: group ? group.name : (bot?.name ?? "") })}
+          aria-label={promptSuggestion || t("composer.placeholder.bot", { name: group ? group.name : (bot?.name ?? "") })}
             className="block max-h-[9rem] min-h-6 w-full resize-none overflow-y-auto bg-transparent px-1 py-1 text-[15px] leading-6 placeholder:text-ink-secondary focus:outline-none"
           />
           <div data-composer-actions className="flex items-center gap-1 @max-[30rem]/composer:ml-auto">
